@@ -17,7 +17,8 @@ import os.path
 import pickle
 from PIL import Image
 from torch.utils.data import Dataset
-from Tar import Tar
+from torchvision import transforms
+from dataset.xrEgoPose.Tar import Tar
 from treelib.exceptions import NodeIDAbsentError
 
 
@@ -33,7 +34,7 @@ class xrEgoPose(Dataset):
 
     Download and Unarchive:
         Download this dataset using Downloader.py, then unarchive using the
-        bash script, unarchive.sh. To run the script, navidate to the root
+        bash script, unarchive.sh. To run the script, navigate to the root
         directory of the project and type: ./unarchive.sh
 
     Re-Archive:
@@ -174,24 +175,40 @@ class xrEgoPose(Dataset):
         item['data'] = dict()
         if self.bool_depth:
             if self.bool_tarArchive:
-                item['data']['depth'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['depth'])
+                item['data']['depth']['img'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['depth'])
             else:
-                item['data']['depth'] = self.getImagePIL(item_meta['depth'])
+                item['data']['depth']['img'] = self.getImagePIL(item_meta['depth'])
+            if self.bool_tensor:
+                item['data']['depth']['tensor'] = self.TensorFromImagePIL(item['data']['depth']['img'])
+            else:
+                item['data']['depth']['tensor'] = None
         if self.bool_rgba:
             if self.bool_tarArchive:
-                item['data']['rgba'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['rgba'])
+                item['data']['rgba']['img'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['rgba'])
             else:
-                item['data']['rgba'] = self.getImagePIL(item_meta['rgba'])
+                item['data']['rgba']['img'] = self.getImagePIL(item_meta['rgba'])
+            if self.bool_tensor:
+                item['data']['rgba']['tensor'] = self.TensorFromImagePIL(item['data']['rgba']['img'])
+            else:
+                item['data']['rgba']['tensor'] = None
         if self.bool_objectId:
             if self.bool_tarArchive:
-                item['data']['objectId'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['objectId'])
+                item['data']['objectId']['img'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['objectId'])
             else:
-                item['data']['objectId'] = self.getImagePIL(item_meta['objectId'])
+                item['data']['objectId']['img'] = self.getImagePIL(item_meta['objectId'])
+            if self.bool_tensor:
+                item['data']['objectId']['tensor'] = self.TensorFromImagePIL(item['data']['objectId']['img'])
+            else:
+                item['data']['objectId']['tensor'] = None
         if self.bool_worldp:
             if self.bool_tarArchive:
-                item['data']['worldp'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['worldp'])
+                item['data']['worldp']['img'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['worldp'])
             else:
-                item['data']['worldp'] = self.getImagePIL(item_meta['worldp'])
+                item['data']['worldp']['img'] = self.getImagePIL(item_meta['worldp'])
+            if self.bool_tensor:
+                item['data']['worldp']['tensor'] = self.TensorFromImagePIL(item['data']['worldp']['img'])
+            else:
+                item['data']['worldp']['tensor'] = None
         if self.bool_json:
             if self.bool_tarArchive:
                 item['data']['json'] = self.getDataJSONfromTAR(tar=tar_obj, tarinfo=item_meta['json'])
@@ -203,6 +220,43 @@ class xrEgoPose(Dataset):
             else:
                 item['data']['rot'] = self.getDataJSON(item_meta['rot'])
         return item
+
+    def TensorFromImagePIL(self, img):
+        """
+        Transforms a PIL Image to a PyTorch tensor.
+
+        Parameters
+        ----------
+        img : PIL Image
+            A PIL Image to transform.
+
+        Returns
+        -------
+        img_t : Tensor
+            PyTorch tensor representing an image.
+
+        """
+        to_tensor = transforms.ToTensor()
+        img_t = to_tensor(img)
+        return img_t
+    
+    def PlotImageTensor(self, img_t):
+        """
+        Plots an image from a tensor.
+
+        Parameters
+        ----------
+        img_t : Tensor
+            PyTorch tensor representing an image.
+
+        Returns
+        -------
+        None
+
+        """
+        import matplotlib.pyplot as plt
+        plt.imshow(img_t.permute(1, 2, 0))  # Change C x H x W to H x W x C
+        plt.show()
 
     def GetDatasetFilePath(self):
         """

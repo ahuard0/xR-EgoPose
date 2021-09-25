@@ -100,7 +100,7 @@ cd ${dataset_dir}
 download_set "ValSet"
 
 # Download and process Train set
-download_set "TrainSet"
+#download_set "TrainSet"
 
 # # Download and process Test set
 download_set "TestSet"
