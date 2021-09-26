@@ -20,6 +20,8 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from dataset.xrEgoPose.Tar import Tar
 from treelib.exceptions import NodeIDAbsentError
+import transformations
+import numpy as np
 
 
 class xrEgoPose(Dataset):
@@ -46,7 +48,8 @@ class xrEgoPose(Dataset):
     def __init__(self, str_rootdir=r'A:\xR-EgoPose\data\Dataset\ValSet',
                  bool_train=False, bool_tensor=False, bool_depth=False,
                  bool_json=False, bool_objectId=False, bool_rgba=True,
-                 bool_rot=False, bool_worldp=False, bool_tarArchive=True):
+                 bool_rot=False, bool_worldp=False, bool_tarArchive=True,
+                 bool_camera=False):
         r"""
         Initialization function for the dataset.  The user must specify a root
         directory of the dataset in their filesystem.  The xR-EgoPose datasets
@@ -80,17 +83,27 @@ class xrEgoPose(Dataset):
             A boolean switch used to output WorldP image data. The default is
             False.
         bool_json : TYPE, optional
-            A boolean switch used to output position data. The default is
-            False.
+            A boolean switch used to output verbose camera and joint position
+            data. The information provided in this data structure is duplicated
+            in an organized way by other outputs such as bool_camera.  The
+            intent is to preserve the dataset in its original form by exposing
+            this data structure.  Using this data structure is therefore not
+            recommended.  The default is False.
         bool_rot : TYPE, optional
-            A boolean switch used to output rotation data. The default is
-            False.
+            A boolean switch used to output joint position and rotation data.
+            This data structure is only sporatically populated in the dataset
+            and is sometimes missing.  The intent is to preserve the dataset in
+            its original form by exposing this data structure.  Using this data
+            structure is therefore not recommended.  The default is False.
         bool_tarArchive : TYPE, optional
             A boolean switch used to specify the source of raw data for the
             dataset.  When set to false, the dataset is retrieved from
             unarchived folders the way Denis Tome organized it. When set to
             True, the dataset is received from TAR archives (the new method).
             The default is True.
+        bool_camera : TYPE, optional
+            A boolean switch used to output camera translation, rotation, and
+            relative height data.
 
         Returns
         -------
@@ -107,6 +120,7 @@ class xrEgoPose(Dataset):
         self.bool_rot = bool_rot
         self.bool_worldp = bool_worldp
         self.bool_tarArchive = bool_tarArchive
+        self.bool_camera = bool_camera
 
         # Initialize
         self.tar_dict = dict()  # Used to store references to Tar Class objects.  Key is the string tar filepath.
@@ -174,6 +188,7 @@ class xrEgoPose(Dataset):
         
         item['data'] = dict()
         if self.bool_depth:
+            item['data']['depth'] = dict()
             if self.bool_tarArchive:
                 item['data']['depth']['img'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['depth'])
             else:
@@ -183,6 +198,7 @@ class xrEgoPose(Dataset):
             else:
                 item['data']['depth']['tensor'] = None
         if self.bool_rgba:
+            item['data']['rgba'] = dict()
             if self.bool_tarArchive:
                 item['data']['rgba']['img'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['rgba'])
             else:
@@ -192,6 +208,7 @@ class xrEgoPose(Dataset):
             else:
                 item['data']['rgba']['tensor'] = None
         if self.bool_objectId:
+            item['data']['objectId'] = dict()
             if self.bool_tarArchive:
                 item['data']['objectId']['img'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['objectId'])
             else:
@@ -201,6 +218,7 @@ class xrEgoPose(Dataset):
             else:
                 item['data']['objectId']['tensor'] = None
         if self.bool_worldp:
+            item['data']['worldp'] = dict()
             if self.bool_tarArchive:
                 item['data']['worldp']['img'] = self.getImagePILfromTAR(tar=tar_obj, tarinfo=item_meta['worldp'])
             else:
@@ -219,6 +237,36 @@ class xrEgoPose(Dataset):
                 item['data']['rot'] = self.getDataJSONfromTAR(tar=tar_obj, tarinfo=item_meta['rot'])
             else:
                 item['data']['rot'] = self.getDataJSON(item_meta['rot'])
+        if self.bool_camera:
+            item['data']['camera'] = dict()
+            
+            # Gather JSON Frame Data, which contains the camera position, rotation, and rel. height data
+            if self.bool_tarArchive:
+                frame_data = self.getDataJSONfromTAR(tar=tar_obj, tarinfo=item_meta['json'])
+            else:
+                frame_data = self.getDataJSON(item_meta['json'])
+            
+            # Extract and Transform Data
+            char_height = np.array(frame_data['char_height'])  # Height in unknown units, Ex: 181
+            trans_vector = np.array(frame_data['camera']['trans'])  # XYZ in unknown units (centimeters?), Ex: [-6, 167, 12.2]
+            euler_vector = np.array(frame_data['camera']['rot'])  # Euler Angles in degrees, Ex: [264.5, -28.7, 0.9]
+            
+            r"""
+            Understanding of camera parameters (Denis Tome, April 1, 2020)
+            https://github.com/facebookresearch/xR-EgoPose/issues/7
+            
+            Rotations are Euler angles around the static XYZ axes.
+            """
+            rot_vector = euler_vector * np.pi / 180.0
+            rot_matrix = transformations.euler_matrix(rot_vector[0],
+                                                      rot_vector[1],
+                                                      rot_vector[2], 'sxyz')
+            # Return Desired Variables
+            item['data']['camera']['translation'] = trans_vector
+            item['data']['camera']['rot_matrix'] = rot_matrix
+            item['data']['camera']['rot_euler'] = euler_vector
+            item['data']['camera']['char_height'] = char_height
+            
         return item
 
     def TensorFromImagePIL(self, img):
@@ -908,11 +956,11 @@ def main():
     None.
 
     """
-    dataset = xrEgoPose(bool_train=False, bool_tensor=False,
-                        str_rootdir=r'A:\xR-EgoPose\data\Dataset\ValSet',
-                        bool_json=True, bool_rot=True, bool_rgba=True,
-                        bool_worldp=True, bool_depth=True, bool_objectId=True,
-                        bool_tarArchive=True)
+    # dataset = xrEgoPose(bool_train=False, bool_tensor=False,
+    #                    str_rootdir=r'A:\xR-EgoPose\data\Dataset\ValSet',
+    #                    bool_json=True, bool_rot=True, bool_rgba=True,
+    #                    bool_worldp=True, bool_depth=True, bool_objectId=True,
+    #                    bool_tarArchive=True, bool_camera=True)
 
     #dataset.printDatasetSampleDictRange(13, 15)
 
@@ -935,7 +983,23 @@ def main():
     
     #dataset[10301]['data']['worldp'].show()
 
-    dataset.ToString()
+    #dataset.ToString()
+    
+    dataset = xrEgoPose(bool_train=False, bool_tensor=False,
+                        str_rootdir=r'A:\xR-EgoPose\data\Dataset\ValSet',
+                        bool_json=False, bool_rot=False, bool_rgba=False,
+                        bool_worldp=False, bool_depth=False, bool_objectId=False,
+                        bool_tarArchive=True, bool_camera=True)
+
+    cam1 = dataset[201]['data']['camera']
+    cam2 = dataset[5201]['data']['camera']
+    cam3 = dataset[10201]['data']['camera']
+    cam4 = dataset[355]['data']['camera']
+    
+    print(cam1)
+    print(cam2)
+    print(cam3)
+    print(cam4)
     
 
 
