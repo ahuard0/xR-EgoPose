@@ -126,6 +126,7 @@ class xrEgoPose(Dataset):
         self.tar_dict = dict()  # Used to store references to Tar Class objects.  Key is the string tar filepath.
         self.sample_dict = dict()  # Multilevel dictionary with integer primary index key value corresponding to samples in the dataset.
         self.path_list = list()  # List of paths to level 2 directories within the dataset: e.g., "env_001\cam_down"
+        self.set_dict = dict()  # Used to store information index the different sets: e.g., set ID, start index, end index, path, tarpath
         
         if self.bool_tarArchive:
             self.instantiateTarFromPathList()  # Opens each tar archive file and stores a handle in the corresponding Tar Class instantiation
@@ -247,7 +248,11 @@ class xrEgoPose(Dataset):
                 frame_data = self.getDataJSON(item_meta['json'])
             
             # Extract and Transform Data
-            char_height = np.array(frame_data['char_height'])  # Height in unknown units, Ex: 181
+            try:
+                char_height = np.array(frame_data['char_height'])  # Height in unknown units, Ex: 181
+            except KeyError:  # Character Height not found (The dataset is incomplete)
+                char_height = np.array(181.0)  # Default from validation set.
+                item['data']['camera']['note'] = "Character height not found in dataset; default value used: 181.0."
             trans_vector = np.array(frame_data['camera']['trans'])  # XYZ in unknown units (centimeters?), Ex: [-6, 167, 12.2]
             euler_vector = np.array(frame_data['camera']['rot'])  # Euler Angles in degrees, Ex: [264.5, -28.7, 0.9]
             
@@ -345,7 +350,7 @@ class xrEgoPose(Dataset):
         if savepath_pickle is None:
             savepath_pickle = self.GetDatasetFilePath()
         with open(savepath_pickle, "wb") as file:
-            pickle.dump((self.sample_dict, self.path_list), file)
+            pickle.dump((self.sample_dict, self.path_list, self.set_dict), file)
 
     def LoadDataset(self, loadpath_pickle=None):
         """
@@ -368,7 +373,7 @@ class xrEgoPose(Dataset):
         if loadpath_pickle is None:
             loadpath_pickle = self.GetDatasetFilePath()
         with open(loadpath_pickle, 'rb') as file:
-            self.sample_dict, self.path_list = pickle.load(file)
+            self.sample_dict, self.path_list, self.set_dict = pickle.load(file)
 
     def getImagePIL(self, filepath):
         """
@@ -549,66 +554,84 @@ class xrEgoPose(Dataset):
 
         """
         self.sample_dict.clear()  # Dictionary representing the dataset
+        self.set_dict.clear()  # Dictionary representing an indexing of sets within the dataset: e.g., set ID, start index, end index, path, tarpath
         self.path_list.clear()  # List of archive subfolders
         self.path_list = self.getDatasetDirectoriesList(self.str_rootdir)
 
         if self.bool_tarArchive:  # Parse TAR archives
             index = 0  # the sample index number in the PyTorch dataset
+            set_ID = 0  # the set ID number, increments after each set in the dataset
             for _, file_dict in enumerate(self.path_list):  # Iterate over archive subfolders: ["env_001\cam_down", "env_002\cam_down", "env_003\cam_down"]
                 p_tarfile = file_dict['path_tarfile']  # Path to a tar file as a pathlib Path object
                 tar = self.tar_dict[str(p_tarfile)]  # Instantiation of Tar.py class
                 path_str = file_dict['path']  # Path to the data subfolder within the TAR archive: "env_001\cam_down"
-                num_items = 0  # Initialize count to zero -> provides the maximum number of items in the archive subfolder.
+                if '.' in path_str:
+                    continue  # Skip paths that are files. Directories expected: "env_001\cam_down"
+                
+                # Record Set Information
+                self.set_dict[set_ID] = dict()
+                self.set_dict[set_ID]['ID'] = set_ID
+                self.set_dict[set_ID]['path'] = path_str
+                self.set_dict[set_ID]['tarpath'] = p_tarfile
+                self.set_dict[set_ID]['index_start'] = index
+                self.set_dict[set_ID]['index_end'] = index
+                
+                
+                num_items_list = list()  # Initialize count to zero -> provides the maximum number of items in the archive subfolder.
 
                 # Get RGBA Data
                 try:
                     file_dict['rgba'] = tar.GetLeaves(str(PurePosixPath(path_str, 'rgba')))  # Get a list of treelib nodes corresponding to the files in the TAR archive subfolder: "env_001\cam_down\rgba"
-                    num_items = max(num_items, len(file_dict['rgba']))  # Update the file count
+                    num_items_list.append(len(file_dict['rgba']))  # Update the file count
                 except NodeIDAbsentError:
                     file_dict['rgba'] = None
 
                 # Get Depth Data
                 try:
                     file_dict['depth'] = tar.GetLeaves(str(PurePosixPath(path_str, 'depth')))  # Get a list of treelib nodes corresponding to the files in the TAR archive subfolder: "env_001\cam_down\depth"
-                    num_items = max(num_items, len(file_dict['depth']))  # Update the file count
+                    num_items_list.append(len(file_dict['depth']))  # Update the file count
                 except NodeIDAbsentError:
                     file_dict['depth'] = None
 
                 # Get WorldP Data
                 try:
                     file_dict['worldp'] = tar.GetLeaves(str(PurePosixPath(path_str, 'worldp')))  # Get a list of treelib nodes corresponding to the files in the TAR archive subfolder: "env_001\cam_down\worldp"
-                    num_items = max(num_items, len(file_dict['worldp']))  # Update the file count
+                    num_items_list.append(len(file_dict['worldp']))  # Update the file count
                 except NodeIDAbsentError:
                     file_dict['worldp'] = None
 
                 # Get objectID Data
                 try:
                     file_dict['objectId'] = tar.GetLeaves(str(PurePosixPath(path_str, 'objectId')))  # Get a list of treelib nodes corresponding to the files in the TAR archive subfolder: "env_001\cam_down\objectId"
-                    num_items = max(num_items, len(file_dict['objectId']))  # Update the file count
+                    num_items_list.append(len(file_dict['objectId']))  # Update the file count
                 except NodeIDAbsentError:
                     file_dict['objectId'] = None
 
                 # Get JSON Data
                 try:
                     file_dict['json'] = tar.GetLeaves(str(PurePosixPath(path_str, 'json')))  # Get a list of treelib nodes corresponding to the files in the TAR archive subfolder: "env_001\cam_down\json"
-                    num_items = max(num_items, len(file_dict['json']))  # Update the file count
+                    num_items_list.append(len(file_dict['json']))  # Update the file count
                 except NodeIDAbsentError:
                     file_dict['json'] = None
 
                 # Get Rot Data
                 try:
                     file_dict['rot'] = tar.GetLeaves(str(PurePosixPath(path_str, 'rot')))  # Get a list of treelib nodes corresponding to the files in the TAR archive subfolder: "env_001\cam_down\rot"
-                    num_items = max(num_items, len(file_dict['rot']))  # Update the file count
+                    num_items_list.append(len(file_dict['rot']))  # Update the file count
                 except NodeIDAbsentError:
                     file_dict['rot'] = None
 
                 # Output to Dictionary
+                num_items = min(num_items_list)
                 for ndx, _ in enumerate(range(0, num_items)):  # Iterate over the maximum file count.  Used to gather a one-to-one matrix of related file pointers for each dataset index.
                     self.sample_dict[index] = dict()  # Initialize dictionary representing the dataset item
                     self.sample_dict[index]['meta'] = dict()  # Initialize meta data
                     self.sample_dict[index]['index'] = index  # Store index value for reference and easy printing of diagnostics to the console. Easily tells what index the data belongs to.
                     self.sample_dict[index]['meta']['path'] = p_tarfile  # Store the path to the tar archive file.  This is a pathlib Path object.
-                    #self.sample_dict[index]['meta']['tar'] = tar  # Store a reference to the tar class instantiation.  This does not copy the class, but merely attaches a low cost reference in memory to it.
+                    self.sample_dict[index]['meta']['set'] = dict()  # Store meta information of the set
+                    self.sample_dict[index]['meta']['set']['ID'] = set_ID  # Integer ID of the set within the dataset: e.g., ID 0->"env_001\cam_down"
+                    self.sample_dict[index]['meta']['set']['path'] = path_str  # String path of the set: e.g., "env_001\cam_down"
+                    self.sample_dict[index]['meta']['set']['tarpath'] = p_tarfile  # File path of the tarfile
                     if self.bool_depth:  # Only store information requested when instantiating the dataset.
                         if file_dict['depth']:
                             self.sample_dict[index]['meta']['depth'] = file_dict['depth'][ndx].data  # TarInfo object is attached to each treelib node using the data parameter
@@ -619,7 +642,7 @@ class xrEgoPose(Dataset):
                             self.sample_dict[index]['meta']['rgba'] = file_dict['rgba'][ndx].data  # TarInfo object is attached to each treelib node using the data parameter
                         else:  # Check if the files returned are None
                             self.sample_dict[index]['meta']['rgba'] = None  # Propagate None to the output dictionary of the dataset if no relevant files are found.
-                    if self.bool_json:
+                    if self.bool_json or self.bool_camera:
                         if file_dict['json']:
                             self.sample_dict[index]['meta']['json'] = file_dict['json'][ndx].data  # TarInfo object is attached to each treelib node using the data parameter
                         else:  # Check if the files returned are None
@@ -639,13 +662,25 @@ class xrEgoPose(Dataset):
                             self.sample_dict[index]['meta']['worldp'] = file_dict['worldp'][ndx].data  # TarInfo object is attached to each treelib node using the data parameter
                         else:  # Check if the files returned are None
                             self.sample_dict[index]['meta']['worldp'] = None  # Propagate None to the output dictionary of the dataset if no relevant files are found.
+                    
+                    self.set_dict[set_ID]['index_end'] = index  # Record last index value in the set
                     index += 1  # Increment the PyTorch dataset index value stored
+                set_ID += 1  # Increment the set ID number
 
         else:
             index = 0  # the sample index number in the PyTorch dataset
+            set_ID = 0  # the set ID number, increments after each set in the dataset
             for _, p in enumerate(self.path_list):
                 file_dict = dict()
                 items_dict = dict()
+                if '.' in p:
+                    continue  # Skip paths that are files. Directories expected: "env_001\cam_down"
+                
+                # Record Set Information
+                self.set_dict[set_ID] = dict()
+                self.set_dict[set_ID]['path'] = path_str
+                self.set_dict[set_ID]['index_start'] = index
+                self.set_dict[set_ID]['index_end'] = index
 
                 # Path Dictionary
                 file_dict['dirpath'] = Path(p)
@@ -704,6 +739,9 @@ class xrEgoPose(Dataset):
                     self.sample_dict[index]['meta'] = dict()
                     self.sample_dict[index]['index'] = index
                     self.sample_dict[index]['meta']['path'] = file_dict['dirpath']
+                    self.sample_dict[index]['meta']['set'] = dict()  # Store meta information of the set
+                    self.sample_dict[index]['meta']['set']['ID'] = set_ID  # Integer ID of the set within the dataset: e.g., ID 0->"env_001\cam_down"
+                    self.sample_dict[index]['meta']['set']['path'] = path_str  # String path of the set: e.g., "env_001\cam_down"
                     if self.bool_depth:
                         if file_dict['depth']:
                             self.sample_dict[index]['meta']['depth'] = file_dict['depth'][ndx]
@@ -714,7 +752,7 @@ class xrEgoPose(Dataset):
                             self.sample_dict[index]['meta']['rgba'] = file_dict['rgba'][ndx]
                         else:
                             self.sample_dict[index]['meta']['rgba'] = None
-                    if self.bool_json:
+                    if self.bool_json or self.bool_camera:
                         if file_dict['json']:
                             self.sample_dict[index]['meta']['json'] = file_dict['json'][ndx]
                         else:
@@ -734,7 +772,9 @@ class xrEgoPose(Dataset):
                             self.sample_dict[index]['meta']['worldp'] = file_dict['worldp'][ndx]
                         else:
                             self.sample_dict[index]['meta']['worldp'] = None
-                    index += 1
+                    self.set_dict[set_ID]['index_end'] = index  # Record last index value in the set
+                    index += 1  # Increment the PyTorch dataset index value stored
+                set_ID += 1  # Increment the set ID number
 
         return None
 
