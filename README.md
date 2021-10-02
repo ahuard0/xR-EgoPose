@@ -21,4 +21,4 @@
  
    This implementation requires a TAR archived version of the xR-EgoPose
    dataset.  First download and unarchive as described above, then run
-   archive.py to convert the dataset to uncompressed TAR archives.
+   archive.py to convert the dataset to non-compressed TAR archives.
