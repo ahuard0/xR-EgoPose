@@ -127,6 +127,7 @@ class xrEgoPose(Dataset):
         self.sample_dict = dict()  # Multilevel dictionary with integer primary index key value corresponding to samples in the dataset.
         self.path_list = list()  # List of paths to level 2 directories within the dataset: e.g., "env_001\cam_down"
         self.set_dict = dict()  # Used to store information index the different sets: e.g., set ID, start index, end index, path, tarpath
+        self.set_index = list()  # Used to index samples by set ID: [0 0 0 ... 1 1 1 ... 46 46 46]
         
         if self.bool_tarArchive:
             self.instantiateTarFromPathList()  # Opens each tar archive file and stores a handle in the corresponding Tar Class instantiation
@@ -249,10 +250,17 @@ class xrEgoPose(Dataset):
             
             # Extract and Transform Data
             try:
-                char_height = np.array(frame_data['char_height'])  # Height in unknown units, Ex: 181
+                frame_data['char_height']
             except KeyError:  # Character Height not found (The dataset is incomplete)
                 char_height = np.array(181.0)  # Default from validation set.
                 item['data']['camera']['note'] = "Character height not found in dataset; default value used: 181.0."
+            else:
+                char_height = np.array(frame_data['char_height'])  # Height in unknown units, Ex: 181
+            finally:
+                if char_height is None or char_height==None:  # Sometimes the dataset has this value set to None
+                    char_height = np.array(181.0)  # Default from validation set.
+                    item['data']['camera']['note'] = "Character height not found in dataset; default value used: 181.0."
+            
             trans_vector = np.array(frame_data['camera']['trans'])  # XYZ in unknown units (centimeters?), Ex: [-6, 167, 12.2]
             euler_vector = np.array(frame_data['camera']['rot'])  # Euler Angles in degrees, Ex: [264.5, -28.7, 0.9]
             
@@ -350,7 +358,7 @@ class xrEgoPose(Dataset):
         if savepath_pickle is None:
             savepath_pickle = self.GetDatasetFilePath()
         with open(savepath_pickle, "wb") as file:
-            pickle.dump((self.sample_dict, self.path_list, self.set_dict), file)
+            pickle.dump((self.sample_dict, self.path_list, self.set_dict, self.set_index), file)
 
     def LoadDataset(self, loadpath_pickle=None):
         """
@@ -373,7 +381,7 @@ class xrEgoPose(Dataset):
         if loadpath_pickle is None:
             loadpath_pickle = self.GetDatasetFilePath()
         with open(loadpath_pickle, 'rb') as file:
-            self.sample_dict, self.path_list, self.set_dict = pickle.load(file)
+            self.sample_dict, self.path_list, self.set_dict, self.set_index = pickle.load(file)
 
     def getImagePIL(self, filepath):
         """
@@ -624,6 +632,7 @@ class xrEgoPose(Dataset):
                 # Output to Dictionary
                 num_items = min(num_items_list)
                 for ndx, _ in enumerate(range(0, num_items)):  # Iterate over the maximum file count.  Used to gather a one-to-one matrix of related file pointers for each dataset index.
+                    self.set_index.append(set_ID)  # Add set ID to index vector, which when populated has length equal to the number of samples.
                     self.sample_dict[index] = dict()  # Initialize dictionary representing the dataset item
                     self.sample_dict[index]['meta'] = dict()  # Initialize meta data
                     self.sample_dict[index]['index'] = index  # Store index value for reference and easy printing of diagnostics to the console. Easily tells what index the data belongs to.
@@ -735,6 +744,7 @@ class xrEgoPose(Dataset):
 
                 # Output to Dictionary
                 for ndx, _ in enumerate(file_dict['rgba']):
+                    self.set_index.append(set_ID)  # Add set ID to index vector, which when populated has length equal to the number of samples.
                     self.sample_dict[index] = dict()
                     self.sample_dict[index]['meta'] = dict()
                     self.sample_dict[index]['index'] = index
