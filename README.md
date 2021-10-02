@@ -1,6 +1,8 @@
 # xR-EgoPose
  An implementation of the xR-EgoPose dataset except the dataset is archived in tar files to reduce the number of files stored.  This is an advantage on some cluster based High Performance Computing (HPC) platforms, which charge per file stored.
  
+ This PyTorch implementation of the xR-EgoPose dataset extracts file data out of Tar archives without extracting the files to the hard drive.  Extraction is done entirely in memory.
+ 
  For the dataset this module implements, see: https://github.com/facebookresearch/xR-EgoPose (Denis Tome, 2019)
  
  Steps to prepare the dataset:
